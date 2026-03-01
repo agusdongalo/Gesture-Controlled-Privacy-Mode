@@ -46,10 +46,10 @@ UI should show:
 - FPS at bottom-left
 
 Gesture tests (hold ~1 second each):
-1. Thumbs Up -> `CLEAR`
+1. Fist (closed palm) -> `CLEAR`
 2. Open Palm -> `BG BLUR`
 3. Peace Sign -> `PIXELATE`
-4. OK Sign -> `FACE BLUR`
+4. Three Fingers (index, middle, ring) -> `FACE BLUR`
 
 Stability expectations:
 - No flicker while holding a gesture

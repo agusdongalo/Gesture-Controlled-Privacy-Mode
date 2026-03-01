@@ -10,21 +10,23 @@ Real-time webcam app that switches privacy filters based on hand gestures using 
 
 ## Setup
 
-Install Python 3.11 if not already installed. The project is configured to use a dedicated virtual environment at `.venv311`.
+Install Python 3.11 if not already installed. The project uses a local virtual environment at `.venv311` (not committed to git).
 
 Create the environment and install dependencies:
 
 ```powershell
-cd c:\xampp\htdocs\GestureControlledPrivacyMode
+cd C:\xampp\htdocs\GestureControlledPrivacyMode
 py -3.11 -m venv .venv311
-.venv311\Scripts\python -m pip install opencv-python mediapipe==0.10.11 numpy
+.\.venv311\Scripts\python.exe -m pip install opencv-python mediapipe==0.10.11 numpy
 ```
+
+If `.venv311` is missing, re-run the commands above to recreate it.
 
 ## Run
 
 ```powershell
-cd c:\xampp\htdocs\GestureControlledPrivacyMode
-.venv311\Scripts\python app.py
+cd C:\xampp\htdocs\GestureControlledPrivacyMode
+.\.venv311\Scripts\python.exe app.py
 ```
 
 This opens the webcam window. Press `Q` or `Esc` to exit.
@@ -37,10 +39,10 @@ UI should show:
 - FPS at bottom-left
 
 Gesture tests (hold ~1 second each):
-1. `??` Thumbs Up -> `CLEAR`
-2. `?` Open Palm -> `BG BLUR`
-3. `??` Peace Sign -> `PIXELATE`
-4. `??` OK Sign -> `FACE BLUR`
+1. Thumbs Up -> `CLEAR`
+2. Open Palm -> `BG BLUR`
+3. Peace Sign -> `PIXELATE`
+4. OK Sign -> `FACE BLUR`
 
 Stability expectations:
 - No flicker while holding a gesture
@@ -55,7 +57,7 @@ If the camera window does not open:
 3. Quick camera check:
 
 ```powershell
-.venv311\Scripts\python -c "import cv2; cap=cv2.VideoCapture(0); print('opened', cap.isOpened()); ret, frame = cap.read(); print('frame', ret); cap.release()"
+.\.venv311\Scripts\python.exe -c "import cv2; cap=cv2.VideoCapture(0); print('opened', cap.isOpened()); ret, frame = cap.read(); print('frame', ret); cap.release()"
 ```
 
 If `opened False`, try different device indexes (1, 2, etc.) in `app.py` by changing `cv2.VideoCapture(0)`.

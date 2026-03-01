@@ -4,6 +4,7 @@ from collections import deque, Counter
 import cv2
 import mediapipe as mp
 import numpy as np
+import os
 
 # ------------------------------
 # Configuration
@@ -17,12 +18,14 @@ FINGER_EXTEND_ANGLE = 160.0
 FINGER_FOLD_ANGLE = 95.0
 THUMB_EXTEND_ANGLE = 150.0
 THUMB_FOLD_ANGLE = 100.0
+BACKGROUND_DIR = "backgrounds"
 
 MODE_CLEAR = "CLEAR"
 MODE_BG_BLUR = "BG BLUR"
 MODE_PIXELATE = "PIXELATE"
 MODE_FACE_BLUR = "FACE BLUR"
 MODE_HAND_PIXELATE = "HAND PIXEL"
+MODE_BG_IMAGE = "BG IMAGE"
 
 GESTURE_TO_MODE = {
     "OPEN_PALM": MODE_BG_BLUR,
@@ -255,10 +258,38 @@ def apply_hand_pixelate(frame, hand_landmarks):
     return output
 
 
+def apply_background_image(frame, bg_image, selfie_segmentation):
+    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    results = selfie_segmentation.process(rgb)
+    if results.segmentation_mask is None:
+        return frame
+
+    h, w = frame.shape[:2]
+    bg_resized = cv2.resize(bg_image, (w, h), interpolation=cv2.INTER_LINEAR)
+    mask = (results.segmentation_mask > 0.1).astype(np.uint8)
+    mask_3c = np.repeat(mask[:, :, None], 3, axis=2)
+    output = np.where(mask_3c == 1, frame, bg_resized)
+    return output
+
+
+def load_backgrounds(folder):
+    if not os.path.isdir(folder):
+        return []
+    exts = {".jpg", ".jpeg", ".png", ".bmp"}
+    images = []
+    for name in sorted(os.listdir(folder)):
+        if os.path.splitext(name)[1].lower() in exts:
+            path = os.path.join(folder, name)
+            img = cv2.imread(path)
+            if img is not None:
+                images.append(img)
+    return images
+
+
 # ------------------------------
 # UI
 # ------------------------------
-def draw_ui(frame, mode_label, fps):
+def draw_ui(frame, mode_label, fps, bg_label=None):
     color = (0, 255, 0)
     cv2.putText(
         frame,
@@ -270,6 +301,18 @@ def draw_ui(frame, mode_label, fps):
         2,
         cv2.LINE_AA,
     )
+
+    if bg_label:
+        cv2.putText(
+            frame,
+            bg_label,
+            (10, 60),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.6,
+            (255, 255, 255),
+            2,
+            cv2.LINE_AA,
+        )
 
     cv2.putText(
         frame,
@@ -297,7 +340,7 @@ def main():
 
     hands = mp_hands.Hands(
         static_image_mode=False,
-        max_num_hands=1,
+        max_num_hands=2,
         model_complexity=1,
         min_detection_confidence=0.6,
         min_tracking_confidence=0.5,
@@ -308,6 +351,12 @@ def main():
     gesture_history = deque(maxlen=GESTURE_BUFFER_SIZE)
     current_mode = MODE_CLEAR
     last_switch_time = 0.0
+    bg_images = load_backgrounds(BACKGROUND_DIR)
+    bg_index = 0
+    bg_select_mode = False
+    prev_left_open = False
+    prev_right_open = False
+    prev_both_fists = False
 
     prev_time = time.time()
     fps = 0.0
@@ -322,35 +371,72 @@ def main():
             rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             hand_results = hands.process(rgb)
 
-            gesture = None
-            hand_landmarks = None
+            hand_data = []
             if hand_results.multi_hand_landmarks and hand_results.multi_handedness:
-                hand_landmarks = hand_results.multi_hand_landmarks[0]
-                handedness_label = (
-                    hand_results.multi_handedness[0].classification[0].label
-                )
-                gesture = detect_gesture(hand_landmarks, handedness_label)
-
-            gesture_history.append(gesture or "NONE")
-
-            counts = Counter(gesture_history)
-            stable_gesture = None
-            if counts:
-                top_gesture, top_count = counts.most_common(1)[0]
-                ratio = top_count / len(gesture_history)
-                if (
-                    top_gesture != "NONE"
-                    and top_count >= STABLE_GESTURE_MIN_COUNT
-                    and ratio >= STABLE_GESTURE_MIN_RATIO
+                for lm, handed in zip(
+                    hand_results.multi_hand_landmarks,
+                    hand_results.multi_handedness,
                 ):
-                    stable_gesture = top_gesture
+                    label = handed.classification[0].label
+                    gesture = detect_gesture(lm, label)
+                    hand_data.append(
+                        {"label": label, "landmarks": lm, "gesture": gesture}
+                    )
 
-            now = time.time()
-            if stable_gesture and stable_gesture in GESTURE_TO_MODE:
-                target_mode = GESTURE_TO_MODE[stable_gesture]
-                if target_mode != current_mode and (now - last_switch_time) >= MODE_SWITCH_COOLDOWN:
-                    current_mode = target_mode
-                    last_switch_time = now
+            left_hand = next((h for h in hand_data if h["label"] == "Left"), None)
+            right_hand = next((h for h in hand_data if h["label"] == "Right"), None)
+
+            left_gesture = left_hand["gesture"] if left_hand else None
+            right_gesture = right_hand["gesture"] if right_hand else None
+
+            left_open = left_gesture == "OPEN_PALM"
+            right_open = right_gesture == "OPEN_PALM"
+            left_fist = left_gesture == "FIST"
+            right_fist = right_gesture == "FIST"
+            both_fists = left_fist and right_fist
+
+            if bg_images:
+                if both_fists and not prev_both_fists:
+                    bg_select_mode = not bg_select_mode
+                    gesture_history.clear()
+                    if bg_select_mode:
+                        current_mode = MODE_BG_IMAGE
+
+                if bg_select_mode:
+                    if right_open and not prev_right_open:
+                        bg_index = (bg_index + 1) % len(bg_images)
+                    if left_open and not prev_left_open:
+                        bg_index = (bg_index - 1) % len(bg_images)
+
+            prev_left_open = left_open
+            prev_right_open = right_open
+            prev_both_fists = both_fists
+
+            primary_hand = right_hand or left_hand
+            primary_gesture = primary_hand["gesture"] if primary_hand else None
+            primary_landmarks = primary_hand["landmarks"] if primary_hand else None
+
+            if not bg_select_mode:
+                gesture_history.append(primary_gesture or "NONE")
+
+                counts = Counter(gesture_history)
+                stable_gesture = None
+                if counts:
+                    top_gesture, top_count = counts.most_common(1)[0]
+                    ratio = top_count / len(gesture_history)
+                    if (
+                        top_gesture != "NONE"
+                        and top_count >= STABLE_GESTURE_MIN_COUNT
+                        and ratio >= STABLE_GESTURE_MIN_RATIO
+                    ):
+                        stable_gesture = top_gesture
+
+                now = time.time()
+                if stable_gesture and stable_gesture in GESTURE_TO_MODE:
+                    target_mode = GESTURE_TO_MODE[stable_gesture]
+                    if target_mode != current_mode and (now - last_switch_time) >= MODE_SWITCH_COOLDOWN:
+                        current_mode = target_mode
+                        last_switch_time = now
 
             if current_mode == MODE_BG_BLUR:
                 output = apply_background_blur(frame, selfie_segmentation)
@@ -358,8 +444,12 @@ def main():
                 output = apply_pixelate(frame)
             elif current_mode == MODE_FACE_BLUR:
                 output = apply_face_blur(frame, face_detection)
-            elif current_mode == MODE_HAND_PIXELATE and hand_landmarks is not None:
-                output = apply_hand_pixelate(frame, hand_landmarks)
+            elif current_mode == MODE_HAND_PIXELATE and primary_landmarks is not None:
+                output = apply_hand_pixelate(frame, primary_landmarks)
+            elif current_mode == MODE_BG_IMAGE and bg_images:
+                output = apply_background_image(
+                    frame, bg_images[bg_index], selfie_segmentation
+                )
             else:
                 output = frame
 
@@ -370,7 +460,10 @@ def main():
             fps = fps * 0.9 + instant_fps * 0.1 if fps > 0 else instant_fps
             prev_time = curr_time
 
-            draw_ui(output, current_mode, fps)
+            bg_label = None
+            if bg_select_mode and both_fists and bg_images:
+                bg_label = f"BG SELECT: {bg_index + 1}/{len(bg_images)}"
+            draw_ui(output, current_mode, fps, bg_label=bg_label)
             cv2.imshow("Gesture Controlled Privacy Mode", output)
 
             key = cv2.waitKey(1) & 0xFF

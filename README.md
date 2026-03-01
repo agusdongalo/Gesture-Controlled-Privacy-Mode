@@ -50,6 +50,8 @@ Gesture tests (hold ~1 second each):
 2. Open Palm -> `BG BLUR`
 3. Peace Sign -> `PIXELATE`
 4. Three Fingers (index, middle, ring) -> `FACE BLUR`
+5. Middle Finger -> `HAND PIXEL`
+6. Both Fists -> `BG SELECT` (background selection mode)
 
 Stability expectations:
 - No flicker while holding a gesture
@@ -68,6 +70,18 @@ If the camera window does not open:
 ```
 
 If `opened False`, try different device indexes (1, 2, etc.) in `app.py` by changing `cv2.VideoCapture(0)`.
+
+## Background Selection (Local Images)
+
+Place your background images in `backgrounds/` inside the project folder (JPG/PNG/BMP).
+
+How it works:
+1. Show **both fists** to enter background selection mode.
+2. **Open right palm** to move to the next image (close and open again to step).
+3. **Open left palm** to move to the previous image.
+4. **Both fists** again to exit selection (the selected background stays applied).
+
+When both fists are shown during selection, the overlay displays `BG SELECT: x/n`.
 
 ## Project Structure
 

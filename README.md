@@ -18,9 +18,16 @@ Create the environment and install dependencies:
 cd C:\xampp\htdocs\GestureControlledPrivacyMode
 py -3.11 -m venv .venv311
 .\.venv311\Scripts\python.exe -m pip install opencv-python mediapipe==0.10.11 numpy
+.\.venv311\Scripts\python.exe app.py
 ```
 
 If `.venv311` is missing, re-run the commands above to recreate it.
+
+If `py -3.11` isn't found, run:
+
+```powershell
+py -0p
+```
 
 ## Run
 

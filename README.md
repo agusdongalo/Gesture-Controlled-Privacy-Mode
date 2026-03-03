@@ -42,7 +42,6 @@ This opens the webcam window. Press `Q` or `Esc` to exit.
 
 UI should show:
 - `Mode: CLEAR` at start
-- Help legend at top
 - FPS at bottom-left
 
 Gesture tests (hold ~1 second each):
@@ -52,10 +51,13 @@ Gesture tests (hold ~1 second each):
 4. Three Fingers (index, middle, ring) -> `FACE BLUR`
 5. Middle Finger -> `HAND PIXEL`
 6. Both Fists -> `BG SELECT` (background selection mode)
+7. Index Finger -> `SIGN` (sign language mode; stays active until exit)
+8. In SIGN mode: Rock-n-roll on either hand -> shows `I LOVE YOU` (only while held)
+9. In SIGN mode: Middle Finger -> exits to `CLEAR`
 
 Stability expectations:
 - No flicker while holding a gesture
-- 0.7s cooldown between mode switches
+- Majority vote over last 8 frames (no cooldown)
 
 ## Troubleshooting
 
@@ -79,7 +81,7 @@ How it works:
 1. Show **both fists** to enter background selection mode.
 2. **Open right palm** to move to the next image (close and open again to step).
 3. **Open left palm** to move to the previous image.
-4. **Both fists** again to exit selection (the selected background stays applied).
+4. **Both fists for ~2 seconds** to exit selection (the selected background stays applied).
 
 When both fists are shown during selection, the overlay displays `BG SELECT: x/n`.
 

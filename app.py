@@ -19,6 +19,10 @@ FINGER_FOLD_ANGLE = 95.0
 THUMB_EXTEND_ANGLE = 150.0
 THUMB_FOLD_ANGLE = 100.0
 BACKGROUND_DIR = "backgrounds"
+WRIST_CROSS_DISTANCE_THRESHOLD = 0.12
+ROCK_BUFFER_SIZE = 5
+ROCK_MIN_COUNT = 3
+BG_TOGGLE_HOLD_SECONDS = 2.0
 
 MODE_CLEAR = "CLEAR"
 MODE_BG_BLUR = "BG BLUR"
@@ -26,6 +30,7 @@ MODE_PIXELATE = "PIXELATE"
 MODE_FACE_BLUR = "FACE BLUR"
 MODE_HAND_PIXELATE = "HAND PIXEL"
 MODE_BG_IMAGE = "BG IMAGE"
+MODE_SIGN = "SIGN"
 
 GESTURE_TO_MODE = {
     "OPEN_PALM": MODE_BG_BLUR,
@@ -33,6 +38,7 @@ GESTURE_TO_MODE = {
     "THREE_FINGERS": MODE_FACE_BLUR,
     "FIST": MODE_CLEAR,
     "MIDDLE_FINGER": MODE_HAND_PIXELATE,
+    "INDEX": MODE_SIGN,
 }
 
 
@@ -114,7 +120,7 @@ def _finger_states(hand_landmarks, handedness_label):
 def detect_gesture(hand_landmarks, handedness_label):
     """
     Detect gesture based on 21 MediaPipe hand landmarks.
-    Returns one of: OPEN_PALM, PEACE, THREE_FINGERS, FIST, or None.
+    Returns one of: OPEN_PALM, PEACE, THREE_FINGERS, INDEX, ROCK, FIST, or None.
     """
     (
         thumb_up,
@@ -134,14 +140,6 @@ def detect_gesture(hand_landmarks, handedness_label):
     if thumb_up and index_up and middle_up and ring_up and pinky_up:
         return "OPEN_PALM"
 
-    # Peace sign: index and middle up, ring and pinky folded
-    if index_up and middle_up and ring_folded and pinky_folded:
-        return "PEACE"
-
-    # Three fingers: index, middle, ring up; pinky folded (thumb can vary)
-    if index_up and middle_up and ring_up and pinky_folded:
-        return "THREE_FINGERS"
-
     # Middle finger: middle up, others strictly folded + middle higher than other tips
     index_folded_strict = (
         metrics["index_angle"] <= FINGER_FOLD_ANGLE and not metrics["index_y_up"]
@@ -159,6 +157,24 @@ def detect_gesture(hand_landmarks, handedness_label):
     )
     if middle_up and index_folded_strict and ring_folded_strict and pinky_folded_strict and middle_is_top:
         return "MIDDLE_FINGER"
+
+    # Peace sign: index and middle strictly up, ring and pinky strictly folded
+    index_up_strict = metrics["index_angle"] >= FINGER_EXTEND_ANGLE and metrics["index_y_up"]
+    middle_up_strict = metrics["middle_angle"] >= FINGER_EXTEND_ANGLE and metrics["middle_y_up"]
+    if index_up_strict and middle_up_strict and ring_folded_strict and pinky_folded_strict:
+        return "PEACE"
+
+    # Three fingers: index, middle, ring up; pinky folded (thumb can vary)
+    if index_up and middle_up and ring_up and pinky_folded:
+        return "THREE_FINGERS"
+
+    # Rock-n-roll: index and pinky up, middle and ring folded (thumb can vary)
+    if index_up and pinky_up and middle_folded and ring_folded:
+        return "ROCK"
+
+    # Index finger: index up, others folded (thumb can vary)
+    if index_up and middle_folded and ring_folded and pinky_folded:
+        return "INDEX"
 
     # Fist (closed palm): all fingers folded (thumb typically folded too)
     if index_folded and middle_folded and ring_folded and pinky_folded:
@@ -289,7 +305,7 @@ def load_backgrounds(folder):
 # ------------------------------
 # UI
 # ------------------------------
-def draw_ui(frame, mode_label, fps, bg_label=None):
+def draw_ui(frame, mode_label, fps, bg_label=None, message=None):
     color = (0, 255, 0)
     cv2.putText(
         frame,
@@ -311,6 +327,18 @@ def draw_ui(frame, mode_label, fps, bg_label=None):
             0.6,
             (255, 255, 255),
             2,
+            cv2.LINE_AA,
+        )
+
+    if message:
+        cv2.putText(
+            frame,
+            message,
+            (int(frame.shape[1] * 0.25), int(frame.shape[0] * 0.6)),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            1.2,
+            (255, 255, 255),
+            3,
             cv2.LINE_AA,
         )
 
@@ -357,6 +385,9 @@ def main():
     prev_left_open = False
     prev_right_open = False
     prev_both_fists = False
+    prev_cross = False
+    rock_history = deque(maxlen=ROCK_BUFFER_SIZE)
+    both_fists_start = None
 
     prev_time = time.time()
     fps = 0.0
@@ -383,8 +414,20 @@ def main():
                         {"label": label, "landmarks": lm, "gesture": gesture}
                     )
 
-            left_hand = next((h for h in hand_data if h["label"] == "Left"), None)
-            right_hand = next((h for h in hand_data if h["label"] == "Right"), None)
+            # Prefer x-position ordering for stability (mirrored webcam)
+            left_hand = None
+            right_hand = None
+            if len(hand_data) == 2:
+                h1, h2 = hand_data[0], hand_data[1]
+                x1 = h1["landmarks"].landmark[0].x
+                x2 = h2["landmarks"].landmark[0].x
+                if x1 <= x2:
+                    left_hand, right_hand = h1, h2
+                else:
+                    left_hand, right_hand = h2, h1
+            else:
+                left_hand = next((h for h in hand_data if h["label"] == "Left"), None)
+                right_hand = next((h for h in hand_data if h["label"] == "Right"), None)
 
             left_gesture = left_hand["gesture"] if left_hand else None
             right_gesture = right_hand["gesture"] if right_hand else None
@@ -395,28 +438,61 @@ def main():
             right_fist = right_gesture == "FIST"
             both_fists = left_fist and right_fist
 
-            if bg_images:
-                if both_fists and not prev_both_fists:
-                    bg_select_mode = not bg_select_mode
-                    gesture_history.clear()
-                    if bg_select_mode:
-                        current_mode = MODE_BG_IMAGE
+            cross_arms = False
+            if left_hand and right_hand:
+                left_lm = left_hand["landmarks"].landmark
+                right_lm = right_hand["landmarks"].landmark
+                left_wrist = left_lm[0]
+                right_wrist = right_lm[0]
+                left_center_x = np.mean([left_lm[i].x for i in (0, 5, 9, 13, 17)])
+                right_center_x = np.mean([right_lm[i].x for i in (0, 5, 9, 13, 17)])
+                dist = np.linalg.norm(
+                    np.array([left_wrist.x, left_wrist.y])
+                    - np.array([right_wrist.x, right_wrist.y])
+                )
+                wrists_close = dist < WRIST_CROSS_DISTANCE_THRESHOLD
+                cross_arms = wrists_close and (left_wrist.x - right_wrist.x) * (
+                    left_center_x - right_center_x
+                ) < 0
 
-                if bg_select_mode:
-                    if right_open and not prev_right_open:
-                        bg_index = (bg_index + 1) % len(bg_images)
-                    if left_open and not prev_left_open:
-                        bg_index = (bg_index - 1) % len(bg_images)
+            if current_mode == MODE_SIGN:
+                exit_sign = left_gesture == "MIDDLE_FINGER" or right_gesture == "MIDDLE_FINGER"
+                if exit_sign:
+                    current_mode = MODE_CLEAR
+                    gesture_history.clear()
+                    bg_select_mode = False
+                    both_fists_start = None
+                    prev_both_fists = False
+            else:
+                if bg_images:
+                    if both_fists:
+                        if both_fists_start is None:
+                            both_fists_start = time.time()
+                        elif time.time() - both_fists_start >= BG_TOGGLE_HOLD_SECONDS and not prev_both_fists:
+                            bg_select_mode = not bg_select_mode
+                            gesture_history.clear()
+                            if bg_select_mode:
+                                current_mode = MODE_BG_IMAGE
+                            prev_both_fists = True
+                    else:
+                        both_fists_start = None
+                        prev_both_fists = False
+
+                    if bg_select_mode:
+                        if right_open and not prev_right_open:
+                            bg_index = (bg_index + 1) % len(bg_images)
+                        if left_open and not prev_left_open:
+                            bg_index = (bg_index - 1) % len(bg_images)
 
             prev_left_open = left_open
             prev_right_open = right_open
-            prev_both_fists = both_fists
+            prev_cross = cross_arms
 
             primary_hand = right_hand or left_hand
             primary_gesture = primary_hand["gesture"] if primary_hand else None
             primary_landmarks = primary_hand["landmarks"] if primary_hand else None
 
-            if not bg_select_mode:
+            if not bg_select_mode and current_mode != MODE_SIGN:
                 gesture_history.append(primary_gesture or "NONE")
 
                 counts = Counter(gesture_history)
@@ -463,7 +539,19 @@ def main():
             bg_label = None
             if bg_select_mode and both_fists and bg_images:
                 bg_label = f"BG SELECT: {bg_index + 1}/{len(bg_images)}"
-            draw_ui(output, current_mode, fps, bg_label=bg_label)
+
+            sign_message = None
+            if current_mode == MODE_SIGN:
+                left_is_rock = left_gesture == "ROCK"
+                right_is_rock = right_gesture == "ROCK"
+                rock_now = left_is_rock or right_is_rock
+                rock_history.append(1 if rock_now else 0)
+                if sum(rock_history) >= ROCK_MIN_COUNT:
+                    sign_message = "I LOVE YOU"
+            else:
+                rock_history.clear()
+
+            draw_ui(output, current_mode, fps, bg_label=bg_label, message=sign_message)
             cv2.imshow("Gesture Controlled Privacy Mode", output)
 
             key = cv2.waitKey(1) & 0xFF

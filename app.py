@@ -854,20 +854,25 @@ def main():
                     seq_a_index = 0
                     seq_a_time = now_t
 
-                # Force Name? to override rock even if pattern state is off
-                if name_detected and msg_b is None:
-                    msg_b = "Name?"
+                # Name? should show immediately and suppress other words this frame
+                name_override = False
+                if name_detected:
+                    sign_message = "Name?"
                     seq_b_index = 0
                     seq_b_time = now_t
+                    index_chest = False
+                    your_window = False
+                    name_override = True
 
-                if msg_a and msg_b:
-                    sign_message = msg_a if a_time_before >= b_time_before else msg_b
-                elif msg_a:
-                    sign_message = msg_a
-                elif msg_b:
-                    sign_message = msg_b
-                elif rock_ready:
-                    sign_message = "I LOVE YOU"
+                if not name_override:
+                    if msg_a and msg_b:
+                        sign_message = msg_a if a_time_before >= b_time_before else msg_b
+                    elif msg_a:
+                        sign_message = msg_a
+                    elif msg_b:
+                        sign_message = msg_b
+                    elif rock_ready:
+                        sign_message = "I LOVE YOU"
 
                 debug_sign_lines = [
                     f"L:{left_gesture or 'NONE'} R:{right_gesture or 'NONE'}",

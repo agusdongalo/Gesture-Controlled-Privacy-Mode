@@ -27,6 +27,12 @@ CHEST_X_MIN = 0.35
 CHEST_X_MAX = 0.65
 CHEST_Y_MIN = 0.55
 CHEST_Y_MAX = 0.85
+SIGN_STEP_TIMEOUT = 5.0
+IM_GRACE_SECONDS = 5.0
+DON_GRACE_SECONDS = 5.0
+IS_GRACE_SECONDS = 5.0
+DON_HOLD_SECONDS = 0.0
+YOUR_GRACE_SECONDS = 5.0
 
 MODE_CLEAR = "CLEAR"
 MODE_BG_BLUR = "BG BLUR"
@@ -426,6 +432,16 @@ def main():
     prev_cross = False
     rock_history = deque(maxlen=ROCK_BUFFER_SIZE)
     both_fists_start = None
+    seq_a_index = 0
+    seq_b_index = 0
+    seq_a_time = 0.0
+    seq_b_time = 0.0
+    sign_word_history = deque(maxlen=3)
+    last_hello_time = 0.0
+    last_im_time = 0.0
+    last_what_time = 0.0
+    last_is_time = 0.0
+    don_hold_start = None
 
     prev_time = time.time()
     fps = 0.0
@@ -606,13 +622,13 @@ def main():
                 bg_label = f"BG SELECT: {bg_index + 1}/{len(bg_images)}"
 
             sign_message = None
+            debug_sign_lines = []
             if current_mode == MODE_SIGN:
                 left_is_rock = left_gesture == "ROCK"
                 right_is_rock = right_gesture == "ROCK"
                 rock_now = left_is_rock or right_is_rock
                 rock_history.append(1 if rock_now else 0)
-                if sum(rock_history) >= ROCK_MIN_COUNT:
-                    sign_message = "I LOVE YOU"
+                rock_ready = sum(rock_history) >= ROCK_MIN_COUNT
 
                 # Sign language extras (SIGN mode only)
                 left_is_open = left_gesture == "OPEN_PALM"
@@ -671,26 +687,237 @@ def main():
                         np.array([lm[17].x, lm[17].y, lm[17].z], dtype=np.float32),
                     )
 
-                    index_extended = index_angle >= FINGER_EXTEND_ANGLE
-                    middle_folded = middle_angle <= FINGER_FOLD_ANGLE
-                    ring_folded = ring_angle <= FINGER_FOLD_ANGLE
-                    pinky_folded = pinky_angle <= FINGER_FOLD_ANGLE
-                    return index_extended and middle_folded and ring_folded and pinky_folded
+                    index_extended = index_angle >= FINGER_EXTEND_ANGLE or lm[8].y < lm[6].y
+                    middle_folded = middle_angle <= FINGER_FOLD_ANGLE or lm[12].y > lm[10].y
+                    ring_folded = ring_angle <= FINGER_FOLD_ANGLE or lm[16].y > lm[14].y
+                    pinky_folded = pinky_angle <= FINGER_FOLD_ANGLE or lm[20].y > lm[18].y
+                    folded_count = sum([middle_folded, ring_folded, pinky_folded])
+                    return index_extended and folded_count >= 2
 
                 index_chest = (index_relaxed(left_hand) and in_chest_zone(left_hand)) or (
                     index_relaxed(right_hand) and in_chest_zone(right_hand)
                 )
 
+                # Detect Name? -> two index fingers facing each other
+                name_detected = False
+                if left_hand and right_hand:
+                    l_relaxed = index_relaxed(left_hand)
+                    r_relaxed = index_relaxed(right_hand)
+                    if l_relaxed and r_relaxed:
+                        l_tip = left_hand["landmarks"].landmark[8]
+                        l_mcp = left_hand["landmarks"].landmark[5]
+                        r_tip = right_hand["landmarks"].landmark[8]
+                        r_mcp = right_hand["landmarks"].landmark[5]
+                        l_dir = np.array([l_tip.x - l_mcp.x, l_tip.y - l_mcp.y])
+                        r_dir = np.array([r_tip.x - r_mcp.x, r_tip.y - r_mcp.y])
+                        if np.linalg.norm(l_dir) > 1e-6 and np.linalg.norm(r_dir) > 1e-6:
+                            l_dir = l_dir / np.linalg.norm(l_dir)
+                            r_dir = r_dir / np.linalg.norm(r_dir)
+                            facing = np.dot(l_dir, r_dir) < -0.5
+                            tip_dist = np.linalg.norm(
+                                np.array([l_tip.x - r_tip.x, l_tip.y - r_tip.y])
+                            )
+                            name_detected = facing and tip_dist < 0.15
+
+                def open_palm_relaxed(hand):
+                    if not hand:
+                        return False
+                    lm = hand["landmarks"].landmark
+                    return (
+                        lm[8].y < lm[6].y
+                        and lm[12].y < lm[10].y
+                        and lm[16].y < lm[14].y
+                        and lm[20].y < lm[18].y
+                    )
+
+                def pinky_relaxed(hand):
+                    if not hand:
+                        return False
+                    lm = hand["landmarks"].landmark
+                    return (
+                        lm[20].y < lm[18].y
+                        and lm[8].y > lm[6].y
+                        and lm[12].y > lm[10].y
+                        and lm[16].y > lm[14].y
+                        and abs(lm[20].x - lm[17].x) > 0.02
+                    )
+
+                # Detect What -> open palm + palm-up orientation (hand plane)
+                what_detected = False
+                if left_hand or right_hand:
+                    hand = left_hand or right_hand
+                    if hand:
+                        lm = hand["landmarks"].landmark
+                        open_relaxed = open_palm_relaxed(hand)
+                        fingertips_y = np.mean([lm[i].y for i in (8, 12, 16, 20)])
+                        palm_up = lm[0].y > fingertips_y
+
+                        p0 = np.array([lm[0].x, lm[0].y, lm[0].z], dtype=np.float32)
+                        p5 = np.array([lm[5].x, lm[5].y, lm[5].z], dtype=np.float32)
+                        p17 = np.array([lm[17].x, lm[17].y, lm[17].z], dtype=np.float32)
+                        n = np.cross(p5 - p0, p17 - p0)
+                        n_norm = np.linalg.norm(n) + 1e-6
+                        n = n / n_norm
+
+                        # Palm facing camera if |nz| is high; palm-up if nz is low and wrist below fingertips
+                        palm_facing = abs(n[2]) > 0.5
+                        what_detected = open_relaxed and palm_up and not palm_facing
+
+                open_palm_word = (open_palm_relaxed(left_hand) or open_palm_relaxed(right_hand)) and not what_detected
+                don_detected = (pinky_relaxed(left_hand) or pinky_relaxed(right_hand)) and not index_chest
+                if DON_HOLD_SECONDS <= 0.0:
+                    don_confirmed = don_detected
+                else:
+                    don_confirmed = False
+                    if don_detected:
+                        if don_hold_start is None:
+                            don_hold_start = now_t
+                        elif now_t - don_hold_start >= DON_HOLD_SECONDS:
+                            don_confirmed = True
+                    else:
+                        don_hold_start = None
+
+                # Sequence handling
+                seq_a = ["HELLO", "IM", "DON"]
+                seq_b = ["WHAT", "IS", "YOUR", "NAME"]
+                now_t = time.time()
+
+                if now_t - seq_a_time > SIGN_STEP_TIMEOUT:
+                    seq_a_index = 0
+                if now_t - seq_b_time > SIGN_STEP_TIMEOUT:
+                    seq_b_index = 0
+
+                a_time_before = seq_a_time
+                b_time_before = seq_b_time
+
+                msg_a = None
+                exp_a = seq_a[seq_a_index]
+                your_window = (now_t - last_is_time) <= YOUR_GRACE_SECONDS
+                if open_palm_word and not your_window:
+                    msg_a = "Hello"
+                    seq_a_index = 1
+                    seq_a_time = now_t
+                    last_hello_time = now_t
+                elif exp_a == "IM" and index_chest:
+                    msg_a = "I'm"
+                    seq_a_index = 2
+                    seq_a_time = now_t
+                elif exp_a == "DON" and don_confirmed:
+                    msg_a = "Don"
+                    seq_a_index = 0
+                    seq_a_time = now_t
+
+                msg_b = None
+                exp_b = seq_b[seq_b_index]
+                if what_detected:
+                    msg_b = "What"
+                    seq_b_index = 1
+                    seq_b_time = now_t
+                    last_what_time = now_t
+                elif exp_b == "IS" and index_chest:
+                    msg_b = "Is"
+                    seq_b_index = 2
+                    seq_b_time = now_t
+                elif open_palm_word and (exp_b == "YOUR" or your_window):
+                    msg_b = "Your"
+                    seq_b_index = 3
+                    seq_b_time = now_t
+                elif exp_b == "NAME" and name_detected:
+                    msg_b = "Name?"
+                    seq_b_index = 0
+                    seq_b_time = now_t
+
+                # Prefer chest-pointing for I'm/Is only when those steps are expected
                 if index_chest:
-                    sign_message = "I am"
-                elif left_is_open or right_is_open:
-                    sign_message = "Hello"
-                elif left_is_pinky or right_is_pinky:
-                    sign_message = "Don"
+                    if msg_a is None and seq_a[seq_a_index] == "IM":
+                        msg_a = "I'm"
+                        seq_a_index = 2
+                        seq_a_time = now_t
+                    if msg_b is None and seq_b[seq_b_index] == "IS":
+                        msg_b = "Is"
+                        seq_b_index = 2
+                        seq_b_time = now_t
+
+                if index_chest and (now_t - last_what_time) <= IS_GRACE_SECONDS:
+                    msg_b = "Is"
+                    seq_b_index = 2
+                    seq_b_time = now_t
+                    last_is_time = now_t
+                elif index_chest and (now_t - last_hello_time) <= IM_GRACE_SECONDS:
+                    msg_a = "I'm"
+                    seq_a_index = 2
+                    seq_a_time = now_t
+                    last_im_time = now_t
+
+                if don_confirmed and (now_t - last_im_time) <= DON_GRACE_SECONDS:
+                    msg_a = "Don"
+                    seq_a_index = 0
+                    seq_a_time = now_t
+
+                # Force Name? to override rock even if pattern state is off
+                if name_detected and msg_b is None:
+                    msg_b = "Name?"
+                    seq_b_index = 0
+                    seq_b_time = now_t
+
+                if msg_a and msg_b:
+                    sign_message = msg_a if a_time_before >= b_time_before else msg_b
+                elif msg_a:
+                    sign_message = msg_a
+                elif msg_b:
+                    sign_message = msg_b
+                elif rock_ready:
+                    sign_message = "I LOVE YOU"
+
+                debug_sign_lines = [
+                    f"L:{left_gesture or 'NONE'} R:{right_gesture or 'NONE'}",
+                    f"A:{seq_a[seq_a_index]} B:{seq_b[seq_b_index]}",
+                    f"cand: hello={open_palm_word} im={index_chest} don={don_confirmed} "
+                    f"what={what_detected} name={name_detected} rock={rock_ready}",
+                    f"hello_age={max(0.0, now_t - last_hello_time):.1f}s "
+                    f"im_age={max(0.0, now_t - last_im_time):.1f}s "
+                    f"what_age={max(0.0, now_t - last_what_time):.1f}s "
+                    f"is_age={max(0.0, now_t - last_is_time):.1f}s",
+                ]
+
+                # Pattern words always override rock
+                if sign_message in ("Hello", "I'm", "Don", "What", "Is", "Your", "Name?"):
+                    sign_word_history.clear()
+                else:
+                    # Skip rock smoothing if Name? is detected this frame
+                    if not name_detected:
+                        sign_word_history.append(sign_message or "NONE")
+                        if sign_word_history:
+                            top_word, top_count = Counter(sign_word_history).most_common(1)[0]
+                            if top_word != "NONE" and top_count >= 2:
+                                sign_message = top_word
+                            else:
+                                sign_message = None
             else:
                 rock_history.clear()
+                seq_a_index = 0
+                seq_b_index = 0
+                seq_a_time = 0.0
+                seq_b_time = 0.0
+                sign_word_history.clear()
+                don_hold_start = None
+                last_is_time = 0.0
+                debug_sign_lines = []
 
             draw_ui(output, current_mode, fps, bg_label=bg_label, message=sign_message)
+            if debug_sign_lines:
+                y0 = 90
+                for i, line in enumerate(debug_sign_lines):
+                    cv2.putText(
+                        output,
+                        line,
+                        (10, y0 + i * 22),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.55,
+                        (0, 255, 255),
+                        2,
+                        cv2.LINE_AA,
+                    )
             cv2.imshow("Gesture Controlled Privacy Mode", output)
 
             key = cv2.waitKey(1) & 0xFF

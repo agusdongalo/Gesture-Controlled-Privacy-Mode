@@ -54,9 +54,17 @@ Gesture tests (hold ~1 second each):
 7. Index Finger -> `SIGN` (sign language mode; stays active until exit)
 8. In SIGN mode: Rock-n-roll on either hand -> shows `I LOVE YOU` (only while held)
 9. In SIGN mode: Middle Finger -> exits to `CLEAR`
-10. In SIGN mode: Open Palm -> shows `Hello`
-11. In SIGN mode: Index pointing to chest -> shows `I am`
-12. In SIGN mode: Pinky up -> shows `Don`
+10. In SIGN mode: Phrase Pattern A -> `Hello` -> `I'm` -> `Don`
+11. In SIGN mode: Phrase Pattern B -> `What` -> `Is` -> `Your` -> `Name?`
+12. Pattern step timeout: ~5 seconds between steps
+13. Grace windows: `I'm` and `Don` can still trigger within ~5 seconds after the previous step
+14. Patterns are independent; you can start either one at any time
+15. Sign definitions (SIGN mode):
+16. Open Palm (palm facing camera) -> `Hello` / `Your` (depends on pattern step)
+17. Index pointing to chest -> `I'm` / `Is` (depends on pattern step)
+18. Pinky up -> `Don`
+19. Palm up open hand -> `What`
+20. Two index fingers facing each other -> `Name?`
 
 Stability expectations:
 - No flicker while holding a gesture

@@ -23,6 +23,10 @@ WRIST_CROSS_DISTANCE_THRESHOLD = 0.12
 ROCK_BUFFER_SIZE = 5
 ROCK_MIN_COUNT = 3
 BG_TOGGLE_HOLD_SECONDS = 2.0
+CHEST_X_MIN = 0.35
+CHEST_X_MAX = 0.65
+CHEST_Y_MIN = 0.55
+CHEST_Y_MAX = 0.85
 
 MODE_CLEAR = "CLEAR"
 MODE_BG_BLUR = "BG BLUR"
@@ -150,6 +154,9 @@ def detect_gesture(hand_landmarks, handedness_label):
     pinky_folded_strict = (
         metrics["pinky_angle"] <= FINGER_FOLD_ANGLE and not metrics["pinky_y_up"]
     )
+    middle_folded_strict = (
+        metrics["middle_angle"] <= FINGER_FOLD_ANGLE and not metrics["middle_y_up"]
+    )
     middle_is_top = (
         hand_landmarks.landmark[12].y < hand_landmarks.landmark[8].y
         and hand_landmarks.landmark[12].y < hand_landmarks.landmark[16].y
@@ -172,8 +179,12 @@ def detect_gesture(hand_landmarks, handedness_label):
     if index_up and pinky_up and middle_folded and ring_folded:
         return "ROCK"
 
-    # Index finger: index up, others folded (thumb can vary)
-    if index_up and middle_folded and ring_folded and pinky_folded:
+    # Pinky-only: pinky up, others folded (thumb can vary)
+    if pinky_up and middle_folded_strict and ring_folded_strict and index_folded_strict:
+        return "PINKY"
+
+    # Index finger: index strictly up, others strictly folded (thumb can vary)
+    if index_up_strict and middle_folded_strict and ring_folded_strict and pinky_folded_strict:
         return "INDEX"
 
     # Fist (closed palm): all fingers folded (thumb typically folded too)
@@ -239,6 +250,30 @@ def apply_face_blur(frame, face_detection):
         output[y1:y2, x1:x2] = blurred
 
     return output
+
+
+def get_primary_face_bbox(frame, face_detection):
+    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    results = face_detection.process(rgb)
+    if not results.detections:
+        return None
+
+    h, w = frame.shape[:2]
+    det = results.detections[0]
+    bbox = det.location_data.relative_bounding_box
+    x1 = int(bbox.xmin * w)
+    y1 = int(bbox.ymin * h)
+    x2 = int((bbox.xmin + bbox.width) * w)
+    y2 = int((bbox.ymin + bbox.height) * h)
+
+    x1 = max(0, x1)
+    y1 = max(0, y1)
+    x2 = min(w, x2)
+    y2 = min(h, y2)
+
+    if x2 <= x1 or y2 <= y1:
+        return None
+    return (x1, y1, x2, y2)
 
 
 def apply_hand_pixelate(frame, hand_landmarks):
@@ -331,10 +366,13 @@ def draw_ui(frame, mode_label, fps, bg_label=None, message=None):
         )
 
     if message:
+        (tw, th), _ = cv2.getTextSize(message, cv2.FONT_HERSHEY_SIMPLEX, 1.2, 3)
+        x = max(10, int((frame.shape[1] - tw) / 2))
+        y = max(30, frame.shape[0] - 40)
         cv2.putText(
             frame,
             message,
-            (int(frame.shape[1] * 0.25), int(frame.shape[0] * 0.6)),
+            (x, y),
             cv2.FONT_HERSHEY_SIMPLEX,
             1.2,
             (255, 255, 255),
@@ -514,6 +552,27 @@ def main():
                         current_mode = target_mode
                         last_switch_time = now
 
+            face_bbox = None
+            if current_mode == MODE_FACE_BLUR or current_mode == MODE_SIGN:
+                face_bbox = get_primary_face_bbox(frame, face_detection)
+
+            debug_chest_box = None
+            debug_index_tip = None
+            if current_mode == MODE_SIGN and face_bbox:
+                x1, y1, x2, y2 = face_bbox
+                fw = max(1, x2 - x1)
+                fh = max(1, y2 - y1)
+                fx = (x1 + x2) / 2.0
+                chest_x_min = int(fx - 0.9 * fw)
+                chest_x_max = int(fx + 0.9 * fw)
+                chest_y_min = int(y2)
+                chest_y_max = int(y2 + 1.8 * fh)
+                debug_chest_box = (chest_x_min, chest_y_min, chest_x_max, chest_y_max)
+
+                if primary_landmarks is not None:
+                    tip = primary_landmarks.landmark[8]
+                    debug_index_tip = (int(tip.x * frame.shape[1]), int(tip.y * frame.shape[0]))
+
             if current_mode == MODE_BG_BLUR:
                 output = apply_background_blur(frame, selfie_segmentation)
             elif current_mode == MODE_PIXELATE:
@@ -528,6 +587,12 @@ def main():
                 )
             else:
                 output = frame
+
+            if debug_chest_box:
+                x1, y1, x2, y2 = debug_chest_box
+                cv2.rectangle(output, (x1, y1), (x2, y2), (0, 255, 255), 2)
+            if debug_index_tip:
+                cv2.circle(output, debug_index_tip, 6, (0, 255, 255), -1)
 
             # FPS calculation (simple smoothing)
             curr_time = time.time()
@@ -548,6 +613,80 @@ def main():
                 rock_history.append(1 if rock_now else 0)
                 if sum(rock_history) >= ROCK_MIN_COUNT:
                     sign_message = "I LOVE YOU"
+
+                # Sign language extras (SIGN mode only)
+                left_is_open = left_gesture == "OPEN_PALM"
+                right_is_open = right_gesture == "OPEN_PALM"
+                left_is_index = left_gesture == "INDEX"
+                right_is_index = right_gesture == "INDEX"
+                left_is_pinky = left_gesture == "PINKY"
+                right_is_pinky = right_gesture == "PINKY"
+
+                def in_chest_zone(hand):
+                    if not hand:
+                        return False
+                    lm = hand["landmarks"].landmark
+                    cx = lm[8].x
+                    cy = lm[8].y
+
+                    if face_bbox:
+                        x1, y1, x2, y2 = face_bbox
+                        fw = max(1, x2 - x1)
+                        fh = max(1, y2 - y1)
+                        fx = (x1 + x2) / 2.0
+                        chest_x_min = (fx - 0.9 * fw) / frame.shape[1]
+                        chest_x_max = (fx + 0.9 * fw) / frame.shape[1]
+                        chest_y_min = y2 / frame.shape[0]
+                        chest_y_max = (y2 + 1.8 * fh) / frame.shape[0]
+                    else:
+                        chest_x_min = CHEST_X_MIN
+                        chest_x_max = CHEST_X_MAX
+                        chest_y_min = CHEST_Y_MIN
+                        chest_y_max = CHEST_Y_MAX
+
+                    return chest_x_min <= cx <= chest_x_max and chest_y_min <= cy <= chest_y_max
+
+                def index_relaxed(hand):
+                    if not hand:
+                        return False
+                    lm = hand["landmarks"].landmark
+                    index_angle = _angle_deg(
+                        np.array([lm[8].x, lm[8].y, lm[8].z], dtype=np.float32),
+                        np.array([lm[6].x, lm[6].y, lm[6].z], dtype=np.float32),
+                        np.array([lm[5].x, lm[5].y, lm[5].z], dtype=np.float32),
+                    )
+                    middle_angle = _angle_deg(
+                        np.array([lm[12].x, lm[12].y, lm[12].z], dtype=np.float32),
+                        np.array([lm[10].x, lm[10].y, lm[10].z], dtype=np.float32),
+                        np.array([lm[9].x, lm[9].y, lm[9].z], dtype=np.float32),
+                    )
+                    ring_angle = _angle_deg(
+                        np.array([lm[16].x, lm[16].y, lm[16].z], dtype=np.float32),
+                        np.array([lm[14].x, lm[14].y, lm[14].z], dtype=np.float32),
+                        np.array([lm[13].x, lm[13].y, lm[13].z], dtype=np.float32),
+                    )
+                    pinky_angle = _angle_deg(
+                        np.array([lm[20].x, lm[20].y, lm[20].z], dtype=np.float32),
+                        np.array([lm[18].x, lm[18].y, lm[18].z], dtype=np.float32),
+                        np.array([lm[17].x, lm[17].y, lm[17].z], dtype=np.float32),
+                    )
+
+                    index_extended = index_angle >= FINGER_EXTEND_ANGLE
+                    middle_folded = middle_angle <= FINGER_FOLD_ANGLE
+                    ring_folded = ring_angle <= FINGER_FOLD_ANGLE
+                    pinky_folded = pinky_angle <= FINGER_FOLD_ANGLE
+                    return index_extended and middle_folded and ring_folded and pinky_folded
+
+                index_chest = (index_relaxed(left_hand) and in_chest_zone(left_hand)) or (
+                    index_relaxed(right_hand) and in_chest_zone(right_hand)
+                )
+
+                if index_chest:
+                    sign_message = "I am"
+                elif left_is_open or right_is_open:
+                    sign_message = "Hello"
+                elif left_is_pinky or right_is_pinky:
+                    sign_message = "Don"
             else:
                 rock_history.clear()
 

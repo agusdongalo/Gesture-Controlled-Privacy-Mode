@@ -54,6 +54,9 @@ Gesture tests (hold ~1 second each):
 7. Index Finger -> `SIGN` (sign language mode; stays active until exit)
 8. In SIGN mode: Rock-n-roll on either hand -> shows `I LOVE YOU` (only while held)
 9. In SIGN mode: Middle Finger -> exits to `CLEAR`
+10. In SIGN mode: Open Palm -> shows `Hello`
+11. In SIGN mode: Index pointing to chest -> shows `I am`
+12. In SIGN mode: Pinky up -> shows `Don`
 
 Stability expectations:
 - No flicker while holding a gesture

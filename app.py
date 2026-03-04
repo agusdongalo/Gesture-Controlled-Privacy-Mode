@@ -572,23 +572,6 @@ def main():
             if current_mode == MODE_FACE_BLUR or current_mode == MODE_SIGN:
                 face_bbox = get_primary_face_bbox(frame, face_detection)
 
-            debug_chest_box = None
-            debug_index_tip = None
-            if current_mode == MODE_SIGN and face_bbox:
-                x1, y1, x2, y2 = face_bbox
-                fw = max(1, x2 - x1)
-                fh = max(1, y2 - y1)
-                fx = (x1 + x2) / 2.0
-                chest_x_min = int(fx - 0.9 * fw)
-                chest_x_max = int(fx + 0.9 * fw)
-                chest_y_min = int(y2)
-                chest_y_max = int(y2 + 1.8 * fh)
-                debug_chest_box = (chest_x_min, chest_y_min, chest_x_max, chest_y_max)
-
-                if primary_landmarks is not None:
-                    tip = primary_landmarks.landmark[8]
-                    debug_index_tip = (int(tip.x * frame.shape[1]), int(tip.y * frame.shape[0]))
-
             if current_mode == MODE_BG_BLUR:
                 output = apply_background_blur(frame, selfie_segmentation)
             elif current_mode == MODE_PIXELATE:
@@ -604,12 +587,6 @@ def main():
             else:
                 output = frame
 
-            if debug_chest_box:
-                x1, y1, x2, y2 = debug_chest_box
-                cv2.rectangle(output, (x1, y1), (x2, y2), (0, 255, 255), 2)
-            if debug_index_tip:
-                cv2.circle(output, debug_index_tip, 6, (0, 255, 255), -1)
-
             # FPS calculation (simple smoothing)
             curr_time = time.time()
             dt = max(1e-6, curr_time - prev_time)
@@ -622,7 +599,6 @@ def main():
                 bg_label = f"BG SELECT: {bg_index + 1}/{len(bg_images)}"
 
             sign_message = None
-            debug_sign_lines = []
             if current_mode == MODE_SIGN:
                 left_is_rock = left_gesture == "ROCK"
                 right_is_rock = right_gesture == "ROCK"
@@ -874,17 +850,6 @@ def main():
                     elif rock_ready:
                         sign_message = "I LOVE YOU"
 
-                debug_sign_lines = [
-                    f"L:{left_gesture or 'NONE'} R:{right_gesture or 'NONE'}",
-                    f"A:{seq_a[seq_a_index]} B:{seq_b[seq_b_index]}",
-                    f"cand: hello={open_palm_word} im={index_chest} don={don_confirmed} "
-                    f"what={what_detected} name={name_detected} rock={rock_ready}",
-                    f"hello_age={max(0.0, now_t - last_hello_time):.1f}s "
-                    f"im_age={max(0.0, now_t - last_im_time):.1f}s "
-                    f"what_age={max(0.0, now_t - last_what_time):.1f}s "
-                    f"is_age={max(0.0, now_t - last_is_time):.1f}s",
-                ]
-
                 # Pattern words always override rock
                 if sign_message in ("Hello", "I'm", "Don", "What", "Is", "Your", "Name?"):
                     sign_word_history.clear()
@@ -907,22 +872,8 @@ def main():
                 sign_word_history.clear()
                 don_hold_start = None
                 last_is_time = 0.0
-                debug_sign_lines = []
 
             draw_ui(output, current_mode, fps, bg_label=bg_label, message=sign_message)
-            if debug_sign_lines:
-                y0 = 90
-                for i, line in enumerate(debug_sign_lines):
-                    cv2.putText(
-                        output,
-                        line,
-                        (10, y0 + i * 22),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        0.55,
-                        (0, 255, 255),
-                        2,
-                        cv2.LINE_AA,
-                    )
             cv2.imshow("Gesture Controlled Privacy Mode", output)
 
             key = cv2.waitKey(1) & 0xFF

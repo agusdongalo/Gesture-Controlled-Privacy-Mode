@@ -15,8 +15,11 @@
     "noEmit": true,
     "jsx": "react-jsx",
 
-    /* Path mapping */
-    "baseUrl": ".",
+     /* Path mapping */
+     "baseUrl": ".",
+     /* Silence deprecation warning for baseUrl (TypeScript 6.x)
+       Keep until migration to TS 7.0+ is completed. */
+     "ignoreDeprecations": "6.0",
     "paths": {
       "@/*": ["src/*"]
     },

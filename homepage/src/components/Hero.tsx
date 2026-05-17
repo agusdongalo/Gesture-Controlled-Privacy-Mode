@@ -81,13 +81,13 @@ export default function Hero({ onOpenDemo }: HeroProps) {
             </div>
 
             {/* Stats */}
-            <div className="flex gap-10 pt-4">
+            <div className="flex justify-center sm:justify-start gap-6 sm:gap-10 pt-4">
               {[
                 { value: '30+', label: 'FPS Real-time' },
                 { value: '5', label: 'Privacy Modes' },
                 { value: '100%', label: 'Offline Ready' },
               ].map((s) => (
-                <div key={s.label}>
+                <div key={s.label} className="text-center sm:text-left">
                   <div className="text-2xl font-bold text-white">{s.value}</div>
                   <div className="text-xs text-slate-500 mt-0.5">{s.label}</div>
                 </div>

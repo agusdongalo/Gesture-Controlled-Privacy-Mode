@@ -401,7 +401,7 @@ def draw_ui(frame, mode_label, fps, bg_label=None, message=None):
     return frame
 
 
-app = Flask(__name__, template_folder='.')
+app = Flask(__name__, template_folder='homepage', static_folder='homepage', static_url_path='')
 
 @app.route('/')
 def index():

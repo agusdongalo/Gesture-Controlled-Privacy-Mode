@@ -54,28 +54,30 @@ export default function Hero({ onOpenDemo }: HeroProps) {
               all powered by MediaPipe.
             </p>
 
-            <div className="flex flex-wrap gap-4">
+            <div className="flex flex-col w-full gap-4 sm:flex-row sm:w-auto">
               <button
                 onClick={onOpenDemo}
-                className="group inline-flex items-center gap-2.5 px-7 py-3.5 rounded-xl bg-gradient-to-r from-cyan-500 to-cyan-400 text-[#0a0e1a] font-semibold text-sm hover:shadow-lg hover:shadow-cyan-500/25 transition-all duration-300 hover:-translate-y-0.5"
+                className="group flex justify-center items-center gap-2.5 px-7 py-3.5 rounded-xl bg-gradient-to-r from-cyan-500 to-cyan-400 text-[#0a0e1a] font-semibold text-sm hover:shadow-lg hover:shadow-cyan-500/25 transition-all duration-300 hover:-translate-y-0.5 w-full sm:w-auto"
               >
                 <Camera className="w-4.5 h-4.5" />
                 Try Live Demo
                 <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-1" />
               </button>
-              <a
-                href="#quickstart"
-                className="group inline-flex items-center gap-2 px-7 py-3.5 rounded-xl border border-white/10 text-white text-sm font-medium hover:border-cyan-500/30 hover:bg-white/5 transition-all duration-300"
-              >
-                Get Started
-              </a>
-              <a
-                href="#how-it-works"
-                className="group inline-flex items-center gap-2 px-7 py-3.5 rounded-xl border border-white/10 text-white text-sm font-medium hover:border-cyan-500/30 hover:bg-white/5 transition-all duration-300"
-              >
-                <Play className="w-4 h-4 text-cyan-400" />
-                How It Works
-              </a>
+              <div className="flex w-full gap-4 sm:w-auto">
+                <a
+                  href="#quickstart"
+                  className="group flex-1 sm:flex-none flex justify-center items-center gap-2 px-2 sm:px-7 py-3.5 rounded-xl border border-white/10 text-white text-sm font-medium hover:border-cyan-500/30 hover:bg-white/5 transition-all duration-300"
+                >
+                  Get Started
+                </a>
+                <a
+                  href="#how-it-works"
+                  className="group flex-1 sm:flex-none flex justify-center items-center gap-2 px-2 sm:px-7 py-3.5 rounded-xl border border-white/10 text-white text-sm font-medium hover:border-cyan-500/30 hover:bg-white/5 transition-all duration-300"
+                >
+                  <Play className="w-4 h-4 text-cyan-400" />
+                  How It Works
+                </a>
+              </div>
             </div>
 
             {/* Stats */}

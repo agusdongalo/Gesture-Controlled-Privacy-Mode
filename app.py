@@ -412,6 +412,11 @@ def index():
     return render_template('index.html')
 
 
+@app.route('/favicon.ico')
+def favicon():
+    return '', 204
+
+
 def generate_frames():
     cap = cv2.VideoCapture(0)
     if not cap.isOpened():

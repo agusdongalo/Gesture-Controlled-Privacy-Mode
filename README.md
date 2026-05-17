@@ -75,6 +75,15 @@ py -0p
 
 Then either install Python 3.11 or point the commands above at an existing Python 3.11 interpreter.
 
+### 2. React Frontend Setup
+To run the web interface locally, you need to compile the React app:
+```powershell
+cd homepage
+npm install
+npm run build
+cd ..
+```
+
 ## Run
 
 ```powershell

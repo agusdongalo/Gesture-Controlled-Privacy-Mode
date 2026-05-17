@@ -12,10 +12,11 @@
     "allowImportingTsExtensions": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
-    "ignoreDeprecations": "6.0",
-    "baseUrl": ".",
     "noEmit": true,
     "jsx": "react-jsx",
+
+    "baseUrl": ".",
+    "ignoreDeprecations": "6.0",
 
      /* Path mapping */
     "paths": {

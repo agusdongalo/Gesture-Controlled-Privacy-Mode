@@ -2,12 +2,14 @@
 
 Real-time webcam application that switches privacy filters and sign-mode actions using hand gestures detected with MediaPipe.
 
-The project is built around a single Python entry point, `app.py`, and combines:
+The project is built around a Python Flask backend (`app.py`) and a modern React frontend (`homepage/`), combining:
 
 - MediaPipe Hands for gesture recognition
 - MediaPipe Selfie Segmentation for person/background separation
 - MediaPipe Face Detection for face-region effects
 - OpenCV for webcam capture, rendering, and image processing
+- Flask & Flask-CORS for streaming the video feed
+- React & Tailwind CSS for a beautiful, responsive user interface
 
 ## What It Does
 
@@ -33,32 +35,36 @@ To reduce flicker, gesture switching uses a short history buffer and only change
 - Local background image replacement from the `backgrounds/` folder
 - Sign mode with phrase sequencing and on-screen word output
 - Live overlay showing active mode, FPS, and sign/background status
+- **Modern Web Interface** accessible right from your browser
 
 ## Requirements
 
 - Windows
 - Python 3.11
+- Node.js (for building the React frontend)
 - Webcam
 
 ## Why Python 3.11
 
-This project uses `mediapipe==0.10.11` and the classic `mp.solutions.*` APIs. In practice, this setup is most reliable on Python 3.11 for this project. If you try newer Python versions and MediaPipe wheels are missing or incompatible, use Python 3.11.
+This project uses `mediapipe==0.10.11` and the classic `mp.solutions.*` APIs. In practice, this setup is most reliable on Python 3.11. If you try newer Python versions and MediaPipe wheels are missing or incompatible, please strictly use Python 3.11.
 
 ## Project Structure
 
 - `app.py` - main application
+- `homepage/` - React frontend UI source code
 - `backgrounds/` - optional local images used for background replacement
 - `README.md` - project documentation
 
 ## Installation
 
-From PowerShell:
+### 1. Python Backend Setup
+Open your PowerShell terminal and run:
 
 ```powershell
-cd C:\xampp\htdocs\GestureControlledPrivacyMode
+cd "C:\xampp\htdocs\My Repos\GestureControlledPrivacyMode"
 py -3.11 -m venv .venv311
 .\.venv311\Scripts\python.exe -m pip install --upgrade pip
-.\.venv311\Scripts\python.exe -m pip install opencv-python mediapipe==0.10.11 numpy
+.\.venv311\Scripts\python.exe -m pip install opencv-python mediapipe==0.10.11 numpy flask flask-cors
 ```
 
 If `py -3.11` is not available, check installed Python versions:

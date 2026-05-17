@@ -1,6 +1,7 @@
 import time
 from collections import deque, Counter
 
+from flask import Flask, render_template, Response
 import cv2
 import mediapipe as mp
 import numpy as np
@@ -400,7 +401,14 @@ def draw_ui(frame, mode_label, fps, bg_label=None, message=None):
     return frame
 
 
-def main():
+app = Flask(__name__, template_folder='.')
+
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+
+def generate_frames():
     cap = cv2.VideoCapture(0)
     if not cap.isOpened():
         print("Error: Could not open webcam.")
@@ -874,18 +882,24 @@ def main():
                 last_is_time = 0.0
 
             draw_ui(output, current_mode, fps, bg_label=bg_label, message=sign_message)
-            cv2.imshow("Gesture Controlled Privacy Mode", output)
-
-            key = cv2.waitKey(1) & 0xFF
-            if key == ord("q") or key == 27:
-                break
+            
+            ret, buffer = cv2.imencode('.jpg', output)
+            if not ret:
+                continue
+            frame_bytes = buffer.tobytes()
+            yield (b'--frame\r\n'
+                   b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
     finally:
         cap.release()
-        cv2.destroyAllWindows()
         hands.close()
         selfie_segmentation.close()
         face_detection.close()
 
 
+@app.route('/video_feed')
+def video_feed():
+    return Response(generate_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
+
+
 if __name__ == "__main__":
-    main()
+    app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=False)

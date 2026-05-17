@@ -2,6 +2,7 @@ import time
 from collections import deque, Counter
 
 from flask import Flask, render_template, Response
+from flask_cors import CORS
 import cv2
 import mediapipe as mp
 import numpy as np
@@ -401,7 +402,10 @@ def draw_ui(frame, mode_label, fps, bg_label=None, message=None):
     return frame
 
 
-app = Flask(__name__, template_folder='homepage', static_folder='homepage', static_url_path='')
+BASE_DIR = os.path.abspath(os.path.dirname(__file__))
+HOMEPAGE_DIR = os.path.join(BASE_DIR, 'homepage', 'dist')
+app = Flask(__name__, template_folder=HOMEPAGE_DIR, static_folder=HOMEPAGE_DIR, static_url_path='')
+CORS(app)
 
 @app.route('/')
 def index():

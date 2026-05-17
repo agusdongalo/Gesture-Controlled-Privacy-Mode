@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vite build && node -e \"var fs=require('fs');if(fs.existsSync('dist/Index.html')){try{fs.renameSync('dist/Index.html','dist/index.html')}catch(e){}}\"",
     "preview": "vite preview"
   },
   "dependencies": {

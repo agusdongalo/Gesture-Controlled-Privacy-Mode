@@ -1,0 +1,6 @@
+{
+  "name": "gesture-controlled-privacy-mode",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Real-time webcam application with gesture-controlled privacy filters"
+}
